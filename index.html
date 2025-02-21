@@ -1,0 +1,305 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <title>Dynamic Family Tree (PPTX)</title>
+    
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/pptxgenjs@3.12.0/dist/pptxgen.bundle.js"></script>
+
+    <style>
+        body { font-family: sans-serif; margin: 20px; text-align: center; }
+        #controls { margin-bottom: 15px; }
+        #controls input { margin: 5px; padding: 6px; width: 250px;}
+        #tree-container { display: inline-block; border: 1px solid #ccc; margin-top: 20px; }
+        .node rect { fill: #fff; stroke: #000; stroke-width: 2px; cursor: pointer; }
+        .node text { font-size: 14px; font-weight: bold; text-anchor: middle; }
+        .link { fill: none; stroke: #000; stroke-width: 2px; }
+    </style>
+</head>
+<body>
+    <h1>वंशावली(PPTX)</h1>
+
+    <div id="controls">
+        <input type="text" id="rootName" placeholder="वंशका मूल व्यक्ति(यदि तोकिएको छैन भने)" />
+        <button onclick="setRoot()">Set</button><br/>
+        <input type="text" id="parentName" placeholder="बुबाको नाम" />
+        <input type="text" id="childName" placeholder="छोराछोरीको नाम" />
+        <button onclick="addChild()">छोराछोरीको नाम थप्नुहोस्</button><br/>
+        <input type="text" id="fileNameInput" placeholder="Enter file name" />
+        <button onclick="downloadPPT()">Download as PPTX</button>
+    </div>
+
+    <div id="tree-container"></div>
+
+    <script>
+        let familyTree = null;
+
+        function findNodeByName(node, name) {
+            if (!node) return null;
+            if (node.name === name) return node;
+            if (node.children) {
+                for (let child of node.children) {
+                    const result = findNodeByName(child, name);
+                    if (result) return result;
+                }
+            }
+            return null;
+        }
+
+        function setRoot() {
+            const rootName = document.getElementById("rootName").value.trim();
+            if (!rootName) {
+                alert("वंशका मूल व्यक्तिको नाम आवश्यक छ।");
+                return;
+            }
+            familyTree = { name: rootName, children: [] };
+            document.getElementById("rootName").value = "";
+            renderTree();
+        }
+
+        function addChild() {
+            if (!familyTree) {
+                alert("वंशका मूल व्यक्तिको नाम आवश्यक छ।");
+                return;
+            }
+            const parentName = document.getElementById("parentName").value.trim();
+            const childName = document.getElementById("childName").value.trim();
+            if (!parentName || !childName) {
+                alert("दुवै बुबा र बच्चाको नाम आवश्यक छ।");
+                return;
+            }
+            let parentNode = findNodeByName(familyTree, parentName);
+            if (!parentNode) {
+                alert(`बुबा '${parentName}'को नाम फेला परेन!`);
+                return;
+            }
+            if (!parentNode.children) parentNode.children = [];
+            parentNode.children.push({ name: childName });
+            document.getElementById("childName").value = "";
+            renderTree();
+        }
+
+        function renderTree() {
+            const container = document.getElementById("tree-container");
+            container.innerHTML = "";
+            if (!familyTree) return;
+
+            const nodeWidth = 120;
+            const nodeHeight = 40;
+            const horizontalSpacing = 200;
+            const verticalSpacing = 100;
+
+            const root = d3.hierarchy(familyTree);
+            const treeLayout = d3.tree().nodeSize([horizontalSpacing, verticalSpacing]);
+            treeLayout(root);
+
+            let xMin = Infinity, xMax = -Infinity;
+            root.each(d => {
+                if (d.x < xMin) xMin = d.x;
+                if (d.x > xMax) xMax = d.x;
+            });
+
+            const margin = 50;
+            const svgWidth = Math.abs(xMax - xMin) + nodeWidth + margin * 2;
+            const svgHeight = (root.height + 1) * verticalSpacing + margin * 2;
+
+            const svg = d3.select("#tree-container")
+                .append("svg")
+                .attr("width", svgWidth)
+                .attr("height", svgHeight);
+
+            const containerWidth = document.getElementById("tree-container").offsetWidth;
+const xShift = (containerWidth / 2) - ((xMax + xMin) / 2);
+
+            root.each(d => {
+                d.data._x = d.x + xShift;
+                d.data._y = d.depth * verticalSpacing + margin;
+            });
+
+            svg.selectAll(".link")
+                .data(root.links())
+                .enter()
+                .append("path")
+                .attr("class", "link")
+                .attr("d", d => `
+                    M${d.source.data._x},${d.source.data._y + nodeHeight / 2}
+                    V${d.target.data._y - nodeHeight / 2}
+                    H${d.target.data._x}
+                `);
+
+            const node = svg.selectAll(".node")
+                .data(root.descendants())
+                .enter()
+                .append("g")
+                .attr("class", "node")
+                .attr("transform", d => `translate(${d.data._x},${d.data._y})`)
+                .on("click", function(event, d) {
+                    const newName = prompt("Edit name:", d.data.name);
+                    if (newName !== null && newName.trim() !== "") {
+                        d.data.name = newName.trim();
+                        renderTree();
+                    }
+                });
+
+            node.append("rect")
+                .attr("width", nodeWidth)
+                .attr("height", nodeHeight)
+                .attr("x", -nodeWidth / 2)
+                .attr("y", -nodeHeight / 2)
+                .attr("rx", 4);
+
+            node.append("text")
+                .attr("dy", ".35em")
+                .text(d => d.data.name);
+        }
+
+       async function downloadPPT() {
+    if (!familyTree) {
+        alert("वंशका मूल व्यक्तिको नाम आवश्यक छ।");
+        return;
+    }
+
+    try {
+        const pptx = new PptxGenJS();
+        const slideWidth = 10;  // Width of the slide in inches
+        const slideHeight = 7.5; // Height of the slide in inches
+        const marginX = 1; // Left-right margin in inches
+        const marginY = 0; // Set to 0 to place root at the very top
+        const availableHeight = slideHeight - (2 * marginY); 
+
+        const nodeWidth = 40 / 72; // Convert 40pt to inches
+        const nodeHeight = 40 / 72;
+        const verticalSpacingPoints = 72; // Vertical spacing (72pt = 1 inch per level)
+
+        const root = d3.hierarchy(familyTree);
+
+        // Calculate available width in points
+        const availableWidthInPoints = (slideWidth - 2 * marginX) * 72;
+
+        // Count nodes at each depth level to determine max nodes in any depth
+        const depthNodeCounts = {};
+        root.each(d => {
+            depthNodeCounts[d.depth] = (depthNodeCounts[d.depth] || 0) + 1;
+        });
+        const maxNodesInDepth = Math.max(...Object.values(depthNodeCounts), 1);
+
+        // Dynamically calculate horizontal spacing based on max nodes and available width
+        const baseHorizontalSpacing = availableWidthInPoints / (maxNodesInDepth - 1 || 1);
+
+        // Generate tree layout with dynamic spacing
+        const treeLayout = d3.tree().nodeSize([baseHorizontalSpacing, verticalSpacingPoints]);
+        treeLayout(root);
+
+        // Position root at top center
+        root.data._x = slideWidth / 2;
+        root.data._y = 0;
+
+        // Adjust node positions based on layout
+        root.each(d => {
+            d.data._x = (d.x / 72) + (slideWidth / 2);
+            d.data._y = (d.y / 72);
+        });
+
+        // Calculate vertical span of the tree
+        let minY = Infinity, maxY = -Infinity;
+        root.each(d => {
+            if (d.data._y < minY) minY = d.data._y;
+            if (d.data._y > maxY) maxY = d.data._y;
+        });
+
+        const treeHeight = maxY - minY;
+        const numSlides = Math.ceil(treeHeight / availableHeight);
+
+        // Generate each slide
+        for (let i = 0; i < numSlides; i++) {
+            const slideStartY = minY + (i * availableHeight);
+            const slideEndY = slideStartY + availableHeight;
+
+            const nodesInSlide = root.descendants().filter(d => 
+                d.data._y >= slideStartY && d.data._y <= slideEndY
+            );
+            const linksInSlide = root.links().filter(link => 
+                nodesInSlide.includes(link.source) && 
+                nodesInSlide.includes(link.target)
+            );
+
+            const slide = pptx.addSlide();
+
+            // Draw connecting lines
+            linksInSlide.forEach(link => {
+                const source = link.source.data;
+                const target = link.target.data;
+                const sourceY = source._y - slideStartY;
+                const targetY = target._y - slideStartY;
+                const gap = nodeHeight / 2;
+
+                // Vertical line
+                slide.addShape(pptx.ShapeType.line, {
+                    x: source._x,
+                    y: sourceY + gap,
+                    w: 0,
+                    h: targetY - sourceY - (2 * gap),
+                    line: { color: "000000", width: 1 }
+                });
+
+                // Horizontal line
+                slide.addShape(pptx.ShapeType.line, {
+                    x: Math.min(source._x, target._x),
+                    y: targetY - gap,
+                    w: Math.abs(target._x - source._x),
+                    h: 0,
+                    line: { color: "000000", width: 1 }
+                });
+            });
+
+            // Draw nodes
+            nodesInSlide.forEach(d => {
+                const adjustedY = d.data._y - slideStartY;
+                slide.addShape(pptx.ShapeType.rect, {
+                    x: d.data._x - (nodeWidth / 2),
+                    y: adjustedY - (nodeHeight / 2),
+                    w: nodeWidth,
+                    h: nodeHeight,
+                    fill: { color: "FFFFFF" },
+                    line: { color: "000000", width: 1 },
+                    rectRadius: 4
+                });
+
+                slide.addText(d.data.name, {
+                    x: d.data._x - (nodeWidth / 2),
+                    y: adjustedY - (nodeHeight / 2),
+                    w: nodeWidth,
+                    h: nodeHeight,
+                    fontSize: 10,
+                    align: "center",
+                    valign: "middle"
+                });
+            });
+        }
+        let fileName = document.getElementById("fileNameInput").value.trim();
+
+        // If the user didn't provide a filename, set a default name
+        if (!fileName) {
+            fileName = "FamilyTree";
+        }
+
+        // Ensure the filename has the correct extension
+        if (!fileName.toLowerCase().endsWith(".pptx")) {
+            fileName += ".pptx";
+        }
+
+        // Generate and save the PPTX file with the user's chosen filename
+        await pptx.writeFile({ fileName: fileName });
+
+
+    } catch (error) {
+        console.error(error);
+        alert("Error generating PPTX.");
+    }
+}
+
+
+    </script>
+</body>
+</html>
